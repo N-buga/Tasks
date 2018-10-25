@@ -1,6 +1,10 @@
 #include <libutils/misc.h>
 #include <libutils/timer.h>
 #include <libutils/fast_random.h>
+#include <libgpu/context.h>
+#include <libgpu/shared_device_buffer.h>
+
+#include "cl/sum_cl.h"
 
 
 template<typename T>
@@ -24,7 +28,7 @@ int main(int argc, char **argv)
     std::vector<unsigned int> as(n, 0);
     FastRandom r(42);
     for (int i = 0; i < n; ++i) {
-        as[i] = (unsigned int) r.next(std::numeric_limits<unsigned int>::max() / n);
+        as[i] = 1; //(unsigned int) r.next(std::numeric_limits<unsigned int>::max() / n);
         reference_sum += as[i];
     }
 
@@ -46,7 +50,7 @@ int main(int argc, char **argv)
         timer t;
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
             unsigned int sum = 0;
-            #pragma omp parallel for reduction(+:sum)
+#pragma omp parallel for reduction(+:sum)
             for (int i = 0; i < n; ++i) {
                 sum += as[i];
             }
@@ -58,7 +62,41 @@ int main(int argc, char **argv)
     }
 
     {
-        // TODO: implement on OpenCL
-        // gpu::Device device = gpu::chooseGPUDevice(argc, argv);
+        gpu::Device device = gpu::chooseGPUDevice(argc, argv);
+
+        gpu::Context context;
+        context.init(device.device_id_opencl);
+        context.activate();
+
+        std::vector<unsigned int> res(1, 0);
+
+        gpu::gpu_mem_32u as_gpu, res_gpu;
+        as_gpu.resizeN(n);
+        res_gpu.resizeN(1);
+
+        as_gpu.writeN(as.data(), n);
+
+        ocl::Kernel sum(sum_kernel, sum_kernel_length, "sum");
+        sum.compile();
+
+        timer t;
+
+        unsigned int workGroupSize = 128;
+        unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
+
+        for (int iter = 0; iter < benchmarkingIters; ++iter) {
+            res_gpu.writeN(res.data(), 1);
+
+            sum.exec(gpu::WorkSize(workGroupSize, global_work_size),
+                     as_gpu, n, res_gpu);
+
+            res_gpu.readN(res.data(), 1);
+            EXPECT_THE_SAME(reference_sum, res[0], "GPU result should be consistent!");
+
+            t.nextLap();
+        }
+
+        std::cout << "GPU:     " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
+        std::cout << "GPU:     " << (n/1000.0/1000.0) / t.lapAvg() << " millions/s" << std::endl;
     }
 }

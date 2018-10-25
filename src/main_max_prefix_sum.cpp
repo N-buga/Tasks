@@ -1,6 +1,9 @@
 #include <libutils/misc.h>
 #include <libutils/timer.h>
 #include <libutils/fast_random.h>
+#include <libgpu/context.h>
+#include <libgpu/shared_device_buffer.h>
+#include "cl/max_prefix_sum_cl.h"
 
 
 template<typename T>
@@ -26,7 +29,7 @@ int main(int argc, char **argv)
         std::cout << "n=" << n << " values in range: [" << (-values_range) << "; " << values_range << "]" << std::endl;
 
         std::vector<int> as(n, 0);
-        FastRandom r(n);
+        FastRandom r(n + 1);
         for (int i = 0; i < n; ++i) {
             as[i] = (unsigned int) r.next(-values_range, values_range);
         }
@@ -71,7 +74,67 @@ int main(int argc, char **argv)
         }
 
         {
-            // TODO: implement on OpenCL
+            gpu::Device device = gpu::chooseGPUDevice(argc, argv);
+
+            gpu::Context context;
+            context.init(device.device_id_opencl);
+            context.activate();
+
+            std::vector<int> res(2, 0);
+
+            gpu::gpu_mem_32i as_gpu, res_sum_gpu, res_pref_gpu, res_ind_gpu;
+            as_gpu.resizeN(n);
+            res_sum_gpu.resizeN(2*n);
+            res_ind_gpu.resizeN(2*n);
+            res_pref_gpu.resizeN(2*n);
+
+            as_gpu.writeN(as.data(), n);
+
+            ocl::Kernel prefix_sum(max_prefix_sum_kernel, max_prefix_sum_kernel_length, "max_prefix_sum");
+            prefix_sum.compile();
+
+            timer t;
+
+            unsigned int workGroupSize = 128;
+
+            for (int iter = 0; iter < benchmarkingIters; ++iter) {
+                prefix_sum.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
+                                n, 0,
+                                as_gpu, as_gpu, res_ind_gpu, true,
+                                res_sum_gpu, res_pref_gpu, res_ind_gpu);
+                int size_arr = n/workGroupSize;
+                int offset = 0;
+                while (size_arr > 1) {
+                    prefix_sum.exec(gpu::WorkSize(workGroupSize, (size_arr + workGroupSize - 1) / workGroupSize * workGroupSize),
+                                    size_arr, offset,
+                                    res_sum_gpu, res_pref_gpu, res_ind_gpu, false,
+                                    res_sum_gpu, res_pref_gpu, res_ind_gpu);
+
+                    offset += size_arr;
+                    size_arr = int(ceil(1.0*size_arr/workGroupSize));
+                }
+
+                int ans_ind;
+                int ans_pref;
+
+                res_ind_gpu.readN(&ans_ind, 1, offset);
+                res_pref_gpu.readN(&ans_pref, 1, offset);
+
+                if (ans_pref < 0) {
+                    ans_pref = 0;
+                    ans_ind = 0;
+                } else {
+                    ans_ind += 1;
+                }
+
+                EXPECT_THE_SAME(reference_max_sum, ans_pref, "GPU result should be consistent!");
+                EXPECT_THE_SAME(reference_result, ans_ind, "GPU result should be consistent!");
+
+                t.nextLap();
+            }
+
+            std::cout << "GPU:     " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
+            std::cout << "GPU:     " << (n/1000.0/1000.0) / t.lapAvg() << " millions/s" << std::endl;
         }
     }
 }
