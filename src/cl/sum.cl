@@ -13,7 +13,12 @@ __kernel void sum(__global const unsigned int* as,
     const unsigned int local_id = get_local_id(0);
 
     __local unsigned int local_as[WORK_GROUP_SIZE];
-    local_as[local_id] = as[global_id];
+
+    if (global_id < n) {
+        local_as[local_id] = as[global_id];
+    } else {
+        local_as[local_id] = 0;
+    }
 
     barrier(CLK_LOCAL_MEM_FENCE);
 

@@ -28,7 +28,7 @@ int main(int argc, char **argv)
     std::vector<unsigned int> as(n, 0);
     FastRandom r(42);
     for (int i = 0; i < n; ++i) {
-        as[i] = 1; //(unsigned int) r.next(std::numeric_limits<unsigned int>::max() / n);
+        as[i] = (unsigned int) r.next(std::numeric_limits<unsigned int>::max() / n);
         reference_sum += as[i];
     }
 
@@ -69,6 +69,7 @@ int main(int argc, char **argv)
         context.activate();
 
         std::vector<unsigned int> res(1, 0);
+        unsigned int zero = 0;
 
         gpu::gpu_mem_32u as_gpu, res_gpu;
         as_gpu.resizeN(n);
@@ -85,7 +86,7 @@ int main(int argc, char **argv)
         unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
 
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
-            res_gpu.writeN(res.data(), 1);
+            res_gpu.writeN(&zero, 1);
 
             sum.exec(gpu::WorkSize(workGroupSize, global_work_size),
                      as_gpu, n, res_gpu);
