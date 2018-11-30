@@ -32,7 +32,6 @@ int main(int argc, char **argv)
     }
     std::cout << "Data generated for M=" << M << ", K=" << K << "!" << std::endl;
 
-    /*
     gpu::gpu_mem_32f as_gpu, as_t_gpu;
     as_gpu.resizeN(M*K);
     as_t_gpu.resizeN(K*M);
@@ -45,10 +44,13 @@ int main(int argc, char **argv)
     {
         timer t;
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
-            // TODO
-            unsigned int work_group_size = 128;
-            unsigned int global_work_size = ...;
-            matrix_transpose_kernel.exec(gpu::WorkSize(work_group_size, global_work_size), as_gpu, as_t_gpu, M, K);
+            unsigned int work_group_sizeX = 16;
+            unsigned int work_group_sizeY = 16;
+            unsigned int global_work_sizeX = (M + work_group_sizeX - 1) / work_group_sizeX * work_group_sizeX;
+            unsigned int global_work_sizeY = (K + work_group_sizeY - 1) / work_group_sizeY * work_group_sizeY;
+            matrix_transpose_kernel.exec(
+                    gpu::WorkSize(work_group_sizeX, work_group_sizeY, global_work_sizeX, global_work_sizeY),
+                    as_gpu, as_t_gpu, M, K);
 
             t.nextLap();
         }
@@ -69,7 +71,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    */
+
 
     return 0;
 }

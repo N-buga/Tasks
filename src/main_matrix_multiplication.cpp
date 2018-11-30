@@ -33,6 +33,9 @@ int main(int argc, char **argv)
     for (unsigned int i = 0; i < as.size(); ++i) {
         as[i] = r.nextf();
     }
+
+    std::cout << std::endl << std::endl;
+
     for (unsigned int i = 0; i < bs.size(); ++i) {
         bs[i] = r.nextf();
     }
@@ -58,7 +61,6 @@ int main(int argc, char **argv)
 
     const std::vector<float> cs_cpu_reference = cs;
 
-    /*
     gpu::gpu_mem_32f as_gpu, bs_gpu, cs_gpu;
     as_gpu.resizeN(M*K);
     bs_gpu.resizeN(K*N);
@@ -73,10 +75,13 @@ int main(int argc, char **argv)
     {
         timer t;
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
-            // TODO
-            unsigned int work_group_size = 128;
-            unsigned int global_work_size = ...;
-            matrix_multiplication_kernel.exec(gpu::WorkSize(work_group_size, global_work_size), as_gpu, bs_gpu, cs_gpu, M, K, N);
+            unsigned int work_group_sizeX = 4;
+            unsigned int work_group_sizeY = 4;
+            unsigned int global_work_sizeX = (M + work_group_sizeX - 1) / work_group_sizeX * work_group_sizeX;
+            unsigned int global_work_sizeY = (K + work_group_sizeY - 1) / work_group_sizeY * work_group_sizeY;
+            matrix_multiplication_kernel.exec(
+                    gpu::WorkSize(work_group_sizeX, work_group_sizeY, global_work_sizeX, global_work_sizeY),
+                    as_gpu, bs_gpu, cs_gpu, M, K, N);
 
             t.nextLap();
         }
@@ -85,13 +90,16 @@ int main(int argc, char **argv)
     }
 
     cs_gpu.readN(cs.data(), M*N);
-    */
 
     // Проверяем корректность результатов
     double diff_sum = 0;
     for (int i = 0; i < M * N; ++i) {
         double a = cs[i];
         double b = cs_cpu_reference[i];
+//        std::cout << a << "|" << b << " ";
+//        if (i % N == (N - 1)) {
+//            std::cout << std::endl;
+//        }
         if (a != 0.0 && b != 0.0) {
             double diff = fabs(a - b) / std::max(fabs(a), fabs(b));
             diff_sum += diff;
