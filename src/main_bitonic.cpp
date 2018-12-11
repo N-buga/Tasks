@@ -24,6 +24,24 @@ void raiseFail(const T &a, const T &b, std::string message, std::string filename
 #define EXPECT_THE_SAME(a, b, message) raiseFail(a, b, message, __FILE__, __LINE__)
 
 
+void bitonic_sort(ocl::Kernel& bitonic_global, ocl::Kernel& bitonic_local,
+                  gpu::gpu_mem_32f& as_gpu,
+                  unsigned int n, unsigned int workGroupSize, unsigned int global_work_size) {
+    for (int i = 1; i < n; i *= 2) {
+        int j = i;
+        while (2*j > workGroupSize) {
+            bitonic_global.exec(gpu::WorkSize(workGroupSize, global_work_size),
+                                as_gpu, n,
+                                i, j);
+            j /= 2;
+        }
+        bitonic_local.exec(gpu::WorkSize(workGroupSize, global_work_size),
+                           as_gpu, n,
+                           i, j);
+    }
+}
+
+
 int main(int argc, char **argv)
 {
     gpu::Device device = gpu::chooseGPUDevice(argc, argv);
@@ -52,13 +70,15 @@ int main(int argc, char **argv)
         std::cout << "CPU: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
         std::cout << "CPU: " << (n/1000/1000) / t.lapAvg() << " millions/s" << std::endl;
     }
-/*
     gpu::gpu_mem_32f as_gpu;
     as_gpu.resizeN(n);
 
     {
-        ocl::Kernel bitonic(bitonic_kernel, bitonic_kernel_length, "bitonic");
-        bitonic.compile();
+        ocl::Kernel bitonic_global(bitonic_kernel, bitonic_kernel_length, "bitonic_global");
+        bitonic_global.compile();
+
+        ocl::Kernel bitonic_local(bitonic_kernel, bitonic_kernel_length, "bitonic_local");
+        bitonic_local.compile();
 
         timer t;
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
@@ -68,8 +88,9 @@ int main(int argc, char **argv)
 
             unsigned int workGroupSize = 128;
             unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
-            bitonic.exec(gpu::WorkSize(workGroupSize, global_work_size),
-                         as_gpu, n);
+
+            bitonic_sort(bitonic_global, bitonic_local, as_gpu, n, workGroupSize, global_work_size);
+
             t.nextLap();
         }
         std::cout << "GPU: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
@@ -82,6 +103,5 @@ int main(int argc, char **argv)
     for (int i = 0; i < n; ++i) {
         EXPECT_THE_SAME(as[i], cpu_sorted[i], "GPU results should be equal to CPU results!");
     }
-*/
     return 0;
 }

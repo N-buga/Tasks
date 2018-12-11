@@ -9,6 +9,7 @@
 
 #include <vector>
 #include <iostream>
+#include <cmath>
 #include <stdexcept>
 
 
@@ -23,6 +24,62 @@ void raiseFail(const T &a, const T &b, std::string message, std::string filename
 
 #define EXPECT_THE_SAME(a, b, message) raiseFail(a, b, message, __FILE__, __LINE__)
 
+
+
+void prefix_sum(ocl::Kernel part_prefix_sum, ocl::Kernel update_prefixes,
+                gpu::gpu_mem_32u as_gpu,
+                unsigned int n, unsigned int workGroupSize) {
+
+    int size_arr = n;
+    int step = 1;
+    while (size_arr >= 1) {
+        part_prefix_sum.exec(gpu::WorkSize(workGroupSize, (size_arr + workGroupSize - 1) / workGroupSize * workGroupSize),
+                        n, step,
+                        as_gpu);
+
+        update_prefixes.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
+                        n, step,
+                        as_gpu);
+
+        size_arr = size_arr / workGroupSize;
+        step *= workGroupSize;
+    }
+
+}
+
+void out(gpu::gpu_mem_32u for_out, unsigned int n) {
+    std::vector<unsigned int> res;
+    res.resize(n);
+
+    for_out.readN(res.data(), n);
+    for (int i = 0; i < n; i++) {
+        printf("%d ", res[i]);
+    }
+    printf("\n");
+}
+
+void radix_sort(ocl::Kernel ones_zeros,
+                ocl::Kernel part_prefix_sum, ocl::Kernel update_prefixes,
+                ocl::Kernel permutation, ocl::Kernel assignment,
+                gpu::gpu_mem_32u as_gpu, gpu::gpu_mem_32u res_gpu,
+                gpu::gpu_mem_32u ones, gpu::gpu_mem_32u zeros,
+                unsigned int n, unsigned int workGroupSize) {
+
+    for (int bit = 0; bit < 32; bit++) {
+        ones_zeros.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
+                        as_gpu, ones, zeros, bit, n);
+
+        prefix_sum(part_prefix_sum, update_prefixes, ones, n, workGroupSize);
+        prefix_sum(part_prefix_sum, update_prefixes, zeros, n, workGroupSize);
+
+        permutation.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
+                         as_gpu, res_gpu, ones, zeros, bit, n);
+
+        assignment.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
+                        res_gpu, as_gpu, n);
+    }
+
+}
 
 int main(int argc, char **argv)
 {
@@ -52,15 +109,31 @@ int main(int argc, char **argv)
         std::cout << "CPU: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
         std::cout << "CPU: " << (n/1000/1000) / t.lapAvg() << " millions/s" << std::endl;
     }
-/*
-    gpu::gpu_mem_32u as_gpu;
+
+    gpu::gpu_mem_32u as_gpu, ones_gpu, zeros_gpu, res_gpu;
     as_gpu.resizeN(n);
+    ones_gpu.resizeN(n);
+    zeros_gpu.resizeN(n);
+    res_gpu.resizeN(n);
 
     {
-        ocl::Kernel radix(radix_kernel, radix_kernel_length, "radix");
-        radix.compile();
+        ocl::Kernel part_prefix_sum(radix_kernel, radix_kernel_length, "part_prefix_sum");
+        part_prefix_sum.compile();
+        
+        ocl::Kernel update_prefix(radix_kernel, radix_kernel_length, "update_prefix");
+        update_prefix.compile();
+
+        ocl::Kernel ones_zeros(radix_kernel, radix_kernel_length, "ones_zeros");
+        ones_zeros.compile();
+
+        ocl::Kernel permutation(radix_kernel, radix_kernel_length, "permutation");
+        permutation.compile();
+
+        ocl::Kernel assignment(radix_kernel, radix_kernel_length, "assignment");
+        assignment.compile();
 
         timer t;
+        
         for (int iter = 0; iter < benchmarkingIters; ++iter) {
             as_gpu.writeN(as.data(), n);
 
@@ -68,20 +141,21 @@ int main(int argc, char **argv)
 
             unsigned int workGroupSize = 128;
             unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
-            radix.exec(gpu::WorkSize(workGroupSize, global_work_size),
-                       as_gpu, n);
+            
+            radix_sort(ones_zeros, part_prefix_sum, update_prefix, permutation, assignment,
+                       as_gpu, res_gpu, ones_gpu, zeros_gpu, n, workGroupSize);
+
             t.nextLap();
         }
         std::cout << "GPU: " << t.lapAvg() << "+-" << t.lapStd() << " s" << std::endl;
         std::cout << "GPU: " << (n/1000/1000) / t.lapAvg() << " millions/s" << std::endl;
 
-        as_gpu.readN(as.data(), n);
+        res_gpu.readN(as.data(), n);
     }
 
     // Проверяем корректность результатов
     for (int i = 0; i < n; ++i) {
         EXPECT_THE_SAME(as[i], cpu_sorted[i], "GPU results should be equal to CPU results!");
     }
-*/
     return 0;
 }
