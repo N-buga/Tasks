@@ -58,22 +58,21 @@ void out(gpu::gpu_mem_32u for_out, unsigned int n) {
     printf("\n");
 }
 
-void radix_sort(ocl::Kernel ones_zeros,
+void radix_sort(ocl::Kernel zeros_kern,
                 ocl::Kernel part_prefix_sum, ocl::Kernel update_prefixes,
                 ocl::Kernel permutation, ocl::Kernel assignment,
                 gpu::gpu_mem_32u as_gpu, gpu::gpu_mem_32u res_gpu,
-                gpu::gpu_mem_32u ones, gpu::gpu_mem_32u zeros,
+                gpu::gpu_mem_32u zeros,
                 unsigned int n, unsigned int workGroupSize) {
 
     for (int bit = 0; bit < 32; bit++) {
-        ones_zeros.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
-                        as_gpu, ones, zeros, bit, n);
+        zeros_kern.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
+                        as_gpu, zeros, bit, n);
 
-        prefix_sum(part_prefix_sum, update_prefixes, ones, n, workGroupSize);
         prefix_sum(part_prefix_sum, update_prefixes, zeros, n, workGroupSize);
 
         permutation.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
-                         as_gpu, res_gpu, ones, zeros, bit, n);
+                         as_gpu, res_gpu, zeros, bit, n);
 
         assignment.exec(gpu::WorkSize(workGroupSize, (n + workGroupSize - 1) / workGroupSize * workGroupSize),
                         res_gpu, as_gpu, n);
@@ -110,9 +109,8 @@ int main(int argc, char **argv)
         std::cout << "CPU: " << (n/1000/1000) / t.lapAvg() << " millions/s" << std::endl;
     }
 
-    gpu::gpu_mem_32u as_gpu, ones_gpu, zeros_gpu, res_gpu;
+    gpu::gpu_mem_32u as_gpu, zeros_gpu, res_gpu;
     as_gpu.resizeN(n);
-    ones_gpu.resizeN(n);
     zeros_gpu.resizeN(n);
     res_gpu.resizeN(n);
 
@@ -123,8 +121,8 @@ int main(int argc, char **argv)
         ocl::Kernel update_prefix(radix_kernel, radix_kernel_length, "update_prefix");
         update_prefix.compile();
 
-        ocl::Kernel ones_zeros(radix_kernel, radix_kernel_length, "ones_zeros");
-        ones_zeros.compile();
+        ocl::Kernel zeros_kern(radix_kernel, radix_kernel_length, "zeros");
+        zeros_kern.compile();
 
         ocl::Kernel permutation(radix_kernel, radix_kernel_length, "permutation");
         permutation.compile();
@@ -142,8 +140,8 @@ int main(int argc, char **argv)
             unsigned int workGroupSize = 128;
             unsigned int global_work_size = (n + workGroupSize - 1) / workGroupSize * workGroupSize;
             
-            radix_sort(ones_zeros, part_prefix_sum, update_prefix, permutation, assignment,
-                       as_gpu, res_gpu, ones_gpu, zeros_gpu, n, workGroupSize);
+            radix_sort(zeros_kern, part_prefix_sum, update_prefix, permutation, assignment,
+                       as_gpu, res_gpu, zeros_gpu, n, workGroupSize);
 
             t.nextLap();
         }

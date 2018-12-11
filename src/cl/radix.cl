@@ -85,9 +85,8 @@ __kernel void update_prefix(
     }
 }
 
-__kernel void ones_zeros(
+__kernel void zeros(
         __global const unsigned int* arr,
-        __global unsigned int* ones,
         __global unsigned int* zeros,
         unsigned int bit,
         unsigned int n
@@ -95,15 +94,13 @@ __kernel void ones_zeros(
     const unsigned int global_id = get_global_id(0);
 
     if (global_id < n) {
-        ones[global_id] = (unsigned int) ((arr[global_id] & (1 << bit)) != 0);
-        zeros[global_id] = 1 - ones[global_id];
+        zeros[global_id] = 1 - (unsigned int) ((arr[global_id] & (1 << bit)) != 0);
     }
 }
 
 __kernel void permutation(
         __global const unsigned int* arr,
         __global       unsigned int* res,
-        __global const unsigned int* ones,
         __global const unsigned int* zeros,
         unsigned int bit,
         unsigned int n
@@ -112,7 +109,9 @@ __kernel void permutation(
 
     if (global_id < n) {
         if ((arr[global_id] & (1 << bit)) != 0) {
-            unsigned int index = zeros[n - 1] + ones[global_id] - 1;
+            int cur_ones = global_id - zeros[global_id] + 1;
+
+            unsigned int index = zeros[n - 1] + cur_ones - 1;
             res[index] = arr[global_id];
         } else {
             unsigned int index = zeros[global_id] - 1;
